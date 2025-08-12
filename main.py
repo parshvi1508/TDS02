@@ -50,6 +50,11 @@ async def analyze(request: Request):
     request_folder = os.path.join(UPLOAD_DIR, request_id)
     os.makedirs(request_folder, exist_ok=True)
 
+    # Setting up file for llm response
+    llm_response_file_path = os.path.join(request_folder, "llm_response.txt")
+    # path for execution code
+    llm_code_file_path = os.path.join(request_folder, "llm_code.txt")
+
     # Setup logging for this request
     log_path = os.path.join(request_folder, "app.log")
     logger = logging.getLogger(request_id)
@@ -113,6 +118,11 @@ async def analyze(request: Request):
             )
             # Check if response is a valid dict (parsed JSON)
             if isinstance(response, dict):
+                # Write to file
+                with open(llm_response_file_path, "a") as f:
+                    result = response
+                    result["comment"] = f"Step-3: Getting scrap code and metadata from llm. Tries count = %d {attempt}"
+                    json.dump(result, f, indent=4)
                 break
         except Exception as e:
             question_text = question_text + last_n_words(str(e), 50)
@@ -128,8 +138,13 @@ async def analyze(request: Request):
 
     logger.info("Step-3: Response from scrapping: %s", last_n_words(response))
 
-    # ✅ 5. Execute generated code safely
+    # ✅ 5. Execute generated code safely also try and except for this is placed in tesk_engine.py file
     execution_result = await run_python_code(response["code"], response["libraries"], folder=request_folder)
+    # Write to file
+    with open(llm_response_file_path, "w") as f:
+        result = execution_result
+        result["comment"] = f"Step-3: Getting scrap code and metadata from llm. Tries count = %d {attempt}"
+        json.dump(result, f, indent=4)
 
     logger.info("Step-4: Execution result of the scrape code: %s", last_n_words(execution_result["output"]))
 
@@ -143,6 +158,10 @@ async def analyze(request: Request):
                 uploaded_files=saved_files,
                 folder=request_folder
             )
+            with open(llm_response_file_path, "a") as f:
+                    result = response
+                    result["comment"] = f"Step-4: Error occured while scrapping. Tries count = %d, {count}"
+                    json.dump(result, f, indent=4)
         except Exception as e:
             logger.error("Step-4: error occured while reading json. %s", last_n_words(e))
 
@@ -162,6 +181,10 @@ async def analyze(request: Request):
                 uploaded_files=saved_files,
                 folder=request_folder
             )
+            with open(llm_response_file_path, "a") as f:
+                    result = response
+                    result["comment"] = f"data.csv is present but empty. Retrying code generation and  execution. Attempt %d, {csv_retry_count + 1}"
+                    json.dump(result, f, indent=4)
             execution_result = await run_python_code(response["code"], response["libraries"], folder=request_folder)
             csv_retry_count += 1
 
