@@ -6,6 +6,7 @@ import uuid
 import aiofiles
 import json
 import logging
+from fastapi.responses import HTMLResponse
 
 from task_engine import run_python_code
 from gemini import parse_question_with_llm, answer_with_data
@@ -20,7 +21,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from fastapi.responses import HTMLResponse
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_frontend():
