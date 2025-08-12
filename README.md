@@ -70,10 +70,13 @@ eg:  https://dd0b98d2abc3.ngrok-free.app/api
 - and after that modify the start.sh file's last line. like this
 
 - Before
+
 ![before](photos/before.png)
 
 - After 
+
 ![after](photos/after.png)
+
 
 ## Environment Variables Setup
 

@@ -257,11 +257,27 @@ async def analyze(request: Request):
     if final_result["code"] == 1:
         final_result = final_result["output"]
     else:
-        result_path = os.path.join(request_folder, "result.json")
-        with open(result_path, "r") as f:
-            data = json.load(f)
-        return JSONResponse(content=data)
-
+        try:
+            # One last try - If result.json is empty
+            # Send request to llm to get metadata again
+            response = await parse_question_with_llm(
+                    question_text=question_text,
+                    uploaded_files=saved_files,
+                    folder=request_folder
+                )
+            # Execute the above generated code
+            execution_result = await run_python_code(response["code"], response["libraries"], folder=request_folder)
+            # get code with provided metadata
+            gpt_ans = await answer_with_data(response["questions"], folder=request_folder)
+            # Execute above generated code
+            final_result = await run_python_code(gpt_ans["code"], gpt_ans["libraries"], folder=request_folder)
+            # Return the generated json
+            result_path = os.path.join(request_folder, "result.json")
+            with open(result_path, "r") as f:
+                data = json.load(f)
+            return JSONResponse(content=data)
+        except Exception as e:
+            pass
     result_path = os.path.join(request_folder, "result.json")
     with open(result_path, "r") as f:
         try:
