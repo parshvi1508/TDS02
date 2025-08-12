@@ -7,54 +7,50 @@ import os
 import io
 import black  # For pretty-printing code
 
-async def run_python_code(code: str, libraries: List[str], folder: str = "uploads") -> dict:
-    def execute_code():
-        # Capture stdout and stderr
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
 
+async def run_python_code(code: str, libraries: List[str], folder: str = "uploads") -> dict:
+    # Ensure the folder exists
+    os.makedirs(folder, exist_ok=True)
+
+    # File where we’ll log execution results
+    log_file_path = os.path.join(folder, "execution_result.txt")
+
+    def log_to_file(content: str):
+        """Append timestamped content to the log file."""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_file_path, "a", encoding="utf-8") as log_file:
+            log_file.write(f"\n[{timestamp}]\n{content}\n{'-'*40}\n")
+
+    def execute_code():
         exec_globals = {}
-        try:
-            exec(code, exec_globals)
-            output = sys.stdout.getvalue()
-            errors = sys.stderr.getvalue()
-            return output, errors
-        finally:
-            sys.stdout, sys.stderr = old_stdout, old_stderr
+        exec(code, exec_globals)
 
     # Step 1: Install all required libraries first
     for lib in libraries:
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
         except Exception as install_error:
-            return {"code": 0, "output": f"❌ Failed to install library '{lib}':\n{install_error}"}
+            error_message = f"❌ Failed to install library '{lib}':\n{install_error}"
+            log_to_file(error_message)
+            return {"code": 0, "output": error_message}
 
     # Step 2: Execute the code after installation
     try:
-        output, errors = execute_code()
-
-        # Ensure folder exists
-        os.makedirs(folder, exist_ok=True)
-
-        # Pretty-print the code using black
+        # Pretty-print the code before execution
         try:
-            pretty_code = black.format_str(code, mode=black.Mode())
+            code_formatted = black.format_str(code, mode=black.Mode())
         except Exception:
-            pretty_code = code  # Fallback if black fails
+            code_formatted = code  # Fallback if formatting fails
 
-        # Create execution_result.txt
-        result_file_path = os.path.join(folder, "execution_result.txt")
-        with open(result_file_path, "a") as f:
-            f.write("\n" + "=" * 50 + "\n")
-            f.write(f"Execution Time: {datetime.datetime.now()}\n\n")
-            f.write("Executed Code:\n")
-            f.write(pretty_code + "\n")
-            f.write("Output:\n")
-            f.write(output if output else "[No output]\n")
-            if errors:
-                f.write("\nErrors:\n" + errors)
+        # Save the pretty-printed code to the log before running
+        log_to_file(f"📜 Executing Code:\n{code_formatted}")
 
-        return {"code": 1, "output": output if output else "✅ Code executed successfully (no output)."}
+        execute_code()
+        success_message = "✅ Code executed successfully after installing libraries."
+        log_to_file(success_message)
+        return {"code": 1, "output": success_message}
 
-    except Exception:
-        return {"code": 0, "output": f"❌ Error during code execution:\n{traceback.format_exc()}"}
+    except Exception as e:
+        error_details = f"❌ Error during code execution:\n{traceback.format_exc()}"
+        log_to_file(error_details)
+        return {"code": 0, "output": error_details}

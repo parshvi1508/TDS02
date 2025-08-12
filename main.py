@@ -141,11 +141,7 @@ async def analyze(request: Request):
     # ✅ 5. Execute generated code safely also try and except for this is placed in tesk_engine.py file
     execution_result = await run_python_code(response["code"], response["libraries"], folder=request_folder)
     # Write to file
-    with open(llm_response_file_path, "w") as f:
-        result = execution_result
-        result["comment"] = f"Step-3: Getting scrap code and metadata from llm. Tries count = %d {attempt}"
-        json.dump(result, f, indent=4)
-
+   
     logger.info("Step-4: Execution result of the scrape code: %s", last_n_words(execution_result["output"]))
 
     count = 0
