@@ -23,18 +23,18 @@ You must only:
 
 Rules:
 - If no URLs are provided, read files from the "uploads" folder and create metadata.  
-- Always save the final dataset to {folder}/data.csv.  
-- If other files are saved, record their paths and short descriptions in {folder}/metadata.txt.  
+- Always save the datasets in  {folder}.  
+- Record the paths and short descriptions of stored data files in {folder}/metadata.txt.  
 - Include in {folder}/metadata.txt:
     • Output of df.info()  
     • Column names  
     • First few rows (df.head())  
+    • also add path to data files that 
     • An ANSWER_FORMAT block:
       - If the provided files (e.g., questions.txt) contain an explicit answer format (JSON object/array/schema/template), copy it VERBATIM under a header line "ANSWER_FORMAT:".
       - If none is present, write "ANSWER_FORMAT: JSON".
 - Create the folder {folder} if it does not exist.  
 - The code must be self-contained and runnable without manual edits.  
-- Use only Python standard libraries plus: pandas, numpy, beautifulsoup4, requests (and others only if strictly required).  
 - If source is a webpage → download and parse.  
 - If source is CSV/Excel → read directly.  
 

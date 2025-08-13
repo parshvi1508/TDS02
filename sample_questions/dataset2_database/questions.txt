@@ -1,0 +1,7 @@
+DATA_SOURCES:
+- Database: retail.db (Products and sales)
+
+QUESTIONS:
+1. List total sales quantity for each product.
+2. Find the top 3 categories by total revenue.
+3. Show monthly total sales in a base64 bar chart.

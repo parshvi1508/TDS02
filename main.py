@@ -7,6 +7,8 @@ import aiofiles
 import json
 import logging
 from fastapi.responses import HTMLResponse
+import difflib
+import aiofiles
 
 from task_engine import run_python_code
 from gemini import parse_question_with_llm, answer_with_data
@@ -33,7 +35,7 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Helper funtion to show last 25 words of string s
-def last_n_words(s, n=25):
+def last_n_words(s, n=100):
     s = str(s)
     words = s.split()
     return ' '.join(words[-n:])
@@ -93,8 +95,7 @@ async def analyze(request: Request):
             saved_files[field_name] = value
 
     # Fallback: If no questions.txt, use the first file as question
-    import difflib
-    import aiofiles
+    
 
     if question_text is None and saved_files:
         target_name = "question.txt"
@@ -140,7 +141,7 @@ async def analyze(request: Request):
                     json.dump(result, f, indent=4)
                 break
         except Exception as e:
-            question_text = question_text + last_n_words(str(e), 50)
+            question_text = question_text + last_n_words(str(e), 100)
             logger.error("Step-3: Error in parsing the result. %s", last_n_words(question_text))
         attempt += 1
 
@@ -162,7 +163,7 @@ async def analyze(request: Request):
     count = 0
     while execution_result["code"] == 0 and count < 3:
         logger.error("Step-4: Error occured while scrapping. Tries count = %d", count)
-        new_question_text = str(question_text) + "previous time this error occured" + last_n_words(str(execution_result["output"]), 50)
+        new_question_text = str(question_text) + "previous time this error occured" + last_n_words(str(execution_result["output"]), 100)
         try:
             response = await parse_question_with_llm(
                 question_text=new_question_text,
@@ -224,7 +225,7 @@ async def analyze(request: Request):
                 break
         except Exception as e:
             logger.error("Step-5: Error: %s", e)
-            response_questions = response["questions"] + last_n_words(str(e), 50)
+            response_questions = response["questions"] + last_n_words(str(e), 100)
         attempt += 1
     
     if not isinstance(gpt_ans, dict):
@@ -249,7 +250,7 @@ async def analyze(request: Request):
     json_str = 1
     while final_result["code"] == 0 and count < 3:
         logger.error("Step-6: Error occured while executing code. Tries count = %d", count+2)
-        new_question_text = str(response["questions"]) + "previous time this error occured" + last_n_words(str(final_result["output"]), 50)
+        new_question_text = str(response["questions"]) + "previous time this error occured" + last_n_words(str(final_result["output"]), 100)
         if json_str == 0:
             new_question_text += "follow the structure {'code': '', 'libraries': ''}"
         logger.info("Step-5: Getting execution code from llm. Tries count = %d", attempt+1)

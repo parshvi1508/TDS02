@@ -1,0 +1,17 @@
+DATA_SOURCES:
+- Database: product_catalog.db
+- Image: product_image.png (product label)
+- URL: Wikipedia best-selling books(https://en.wikipedia.org/wiki/List_of_best-selling_books
+)
+
+ANSWER_FORMAT:
+{
+  "product_name": "...",
+  "db_info": {...},
+  "wiki_top_books": [...]
+}
+
+QUESTIONS:
+1. From product_image.png, extract product name.
+2. Look up this product in product_catalog.db and return full details.
+3. From the Wikipedia URL, return the top 3 best-selling books.

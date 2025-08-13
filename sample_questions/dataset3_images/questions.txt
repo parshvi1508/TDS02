@@ -1,0 +1,7 @@
+DATA_SOURCES:
+- Images: passbook1.png (Scanned bank passbooks)
+
+QUESTIONS:
+1. Extract account holder name and account number from passbook1.png.
+2. From both images, extract all transactions into JSON.
+3. Calculate the total amount credited in both passbooks.

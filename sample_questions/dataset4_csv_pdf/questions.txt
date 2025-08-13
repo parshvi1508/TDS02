@@ -1,0 +1,16 @@
+DATA_SOURCES:
+- CSV: employees.csv
+- PDF: annual_report.pdf
+
+ANSWER_FORMAT:
+{
+  "summary": "...",
+  "charts": [
+    {"title": "...", "base64_image": "..."}
+  ]
+}
+
+QUESTIONS:
+1. From employees.csv, calculate average salary per department.
+2. Generate a pie chart of headcount by department (base64).
+3. From annual_report.pdf, extract revenue and net profit values.
