@@ -30,4 +30,22 @@ Problem: the llm writes code assuming the names on itself which gave raise to to
  - Second llm call gets all the data file paths along with metadata. so this llm tries to generated code for solving them and returning a json based on provided format.
 
 `Note: Sometimes the llm generated code has little mistakes. so, i decided to give llm 3 chances to correct that.`
+
+### Trying to get a good score
+- Currently gemini gives bad result for some requests. 
+    - possible approch: send multiple llm calls and choose the best result.
+
+### New finding:
+- Try to mimic your way of getting solution from llm.
+    - my way:
+        - ask for code --> error occurs in code.
+        - sends the error code. Not the whole question and error code again.
+- `Solution: implement chats `
+    - send only the part where llm made mistake and get answers.
+    - `Plus point: `
+    - If we got a working code. But the outputs are wrong, meaning llm gave wrong logic.
+        - How to check llm gave wrong logic code. `empty files`
+    - ask again
+    - uses less Tokens. Don't have to send again the question statement again.
+
  
