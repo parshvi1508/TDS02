@@ -1,5 +1,7 @@
 # Read this file everything will happen on its own.
 
+# Video of Installation: https://drive.google.com/file/d/1BoTTEmpH7XLz9uVZnfIlaia6Y-MR8Zqr/view?usp=drive_link
+
 `Note: try to use linux distro or install WSL(subsystem for linux) on windows.`
 
 ## 🚀 Features
