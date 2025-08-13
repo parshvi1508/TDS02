@@ -1,0 +1,13 @@
+You are provided with a PDF file named q-extract-tables-from-pdf.pdf containing student marks for multiple groups (Group 1 to Group 53) in 5 subjects: Maths, Physics, English, Economics, and Biology.
+
+Answer the following questions and return the results as a JSON array of strings:
+
+1. What is the overall average score for each subject across all groups?
+2. Which student has the highest total score across all 5 subjects? Return their group number and scores.
+3. Which subject has the highest overall average score? Which has the lowest?
+4. For each group, calculate the average score in each subject.
+5. Identify the top 3 groups with the highest average Maths score.
+6. Plot a bar chart showing the average score per subject across all groups. Return it as a base64-encoded image string: "data:image/png;base64,..."
+7. For each subject, determine the number of students scoring above 90.
+8. Find the group with the highest average total score per student.
+9. Create a histogram of total scores per student across all groups, with bin size = 50. Return as base64-encoded image string.

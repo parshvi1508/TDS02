@@ -93,10 +93,25 @@ async def analyze(request: Request):
             saved_files[field_name] = value
 
     # Fallback: If no questions.txt, use the first file as question
+    import difflib
+    import aiofiles
+
     if question_text is None and saved_files:
-        first_file = next(iter(saved_files.values()))
-        async with aiofiles.open(first_file, "r") as f:
+        target_name = "question.txt"
+        file_names = list(saved_files.keys())
+
+        # Find the closest matching filename
+        closest_matches = difflib.get_close_matches(target_name, file_names, n=1, cutoff=0.6)
+        if closest_matches:
+            selected_file_key = closest_matches[0]
+        else:
+            selected_file_key = next(iter(saved_files.keys()))  # fallback to first file
+
+        selected_file_path = saved_files[selected_file_key]
+
+        async with aiofiles.open(selected_file_path, "r") as f:
             question_text = await f.read()
+
     
     logger.info("Step-2: File sent %s", saved_files)
 
