@@ -4,3 +4,4 @@ google-generativeai
 black
 uvicorn
 pyngrok
+python-multipart
