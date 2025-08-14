@@ -1,58 +1,81 @@
-import sqlite3
+import google.generativeai as genai
 
-# Create and connect to catalog.db
-conn = sqlite3.connect("catalog.db")
-cursor = conn.cursor()
+# Store chat sessions for both parsing and answering
+parse_chat_sessions = {}
+answer_chat_sessions = {}
 
-# Create tables
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS categories (
-    category_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category_name TEXT NOT NULL
-)
-""")
+def get_chat_session(sessions_dict, session_id, system_prompt, model_name="gemini-1.5-pro"):
+    """
+    Get or create a persistent chat session for a given session_id.
+    """
+    if session_id not in sessions_dict:
+        model = genai.GenerativeModel(model_name)
+        chat = model.start_chat(history=[
+            {"role": "system", "parts": system_prompt}
+        ])
+        sessions_dict[session_id] = chat    
+    return sessions_dict[session_id]
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS products (
-    product_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_name TEXT NOT NULL,
-    category_id INTEGER,
-    price REAL,
-    stock INTEGER,
-    FOREIGN KEY (category_id) REFERENCES categories(category_id)
-)
-""")
+# ------------------------
+# PARSE QUESTION FUNCTION
+# ------------------------
+def parse_question_with_llm(question_text=None, metadata=None, session_id="default_parse", retry_message=None):
+    """
+    Parse question with persistent chat session.
+    - If retry_message is provided, sends only that to continue conversation.
+    """
+    SYSTEM_PROMPT = """
+    You are a data extraction and scraping code generator.
+    Your job: Take a user question and metadata about available files or URLs,
+    then return ONLY a JSON with:
+      - "code": Python scraping code
+      - "libraries": list of pip packages required (exclude built-ins)
+    Do NOT add explanations or extra text.
+    """
 
-# Insert sample categories
-categories = [
-    ("Electronics",),
-    ("Books",),
-    ("Clothing",),
-    ("Home Appliances",),
-    ("Toys",)
-]
-cursor.executemany("INSERT INTO categories (category_name) VALUES (?)", categories)
+    chat = get_chat_session(parse_chat_sessions, session_id, SYSTEM_PROMPT)
 
-# Insert sample products
-products = [
-    ("Smartphone", 1, 699.99, 50),
-    ("Laptop", 1, 1200.00, 30),
-    ("Science Fiction Novel", 2, 15.50, 100),
-    ("Cookbook", 2, 22.00, 40),
-    ("Men's T-shirt", 3, 12.99, 200),
-    ("Women's Jeans", 3, 35.00, 150),
-    ("Microwave Oven", 4, 99.99, 25),
-    ("Refrigerator", 4, 450.00, 10),
-    ("Board Game", 5, 29.99, 80),
-    ("Action Figure", 5, 14.99, 120)
-]
-cursor.executemany("""
-INSERT INTO products (product_name, category_id, price, stock)
-VALUES (?, ?, ?, ?)
-""", products)
+    if retry_message:
+        # Only send error/retry message
+        prompt = f"Previous code failed with: {retry_message}. Please fix the code."
+    else:
+        prompt = f"""
+        Question:
+        {question_text}
 
-# Commit and close
-conn.commit()
-conn.close()
+        Metadata:
+        {metadata}
+        """
 
-print("catalog.db created successfully!")
+    response = chat.send_message(prompt)
+    return response.text
+
+# ------------------------
+# ANSWER WITH DATA FUNCTION
+# ------------------------
+def answer_with_data(question_text=None, extracted_data=None, session_id="default_answer", retry_message=None):
+    """
+    Answer analytical question with persistent chat session.
+    - If retry_message is provided, sends only that to continue conversation.
+    """
+    SYSTEM_PROMPT = """
+    You are a data analysis assistant.
+    Given the extracted data (tables, lists, text, images in base64),
+    and the question, return ONLY in the specified answer format from the question.
+    """
+
+    chat = get_chat_session(answer_chat_sessions, session_id, SYSTEM_PROMPT)
+
+    if retry_message:
+        prompt = f"Previous answer failed or was incomplete: {retry_message}. Please correct it."
+    else:
+        prompt = f"""
+        Question:
+        {question_text}
+
+        Extracted Data:
+        {extracted_data}
+        """
+
+    response = chat.send_message(prompt)
+    return response.text

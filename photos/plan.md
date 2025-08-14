@@ -31,7 +31,7 @@ Problem: the llm writes code assuming the names on itself which gave raise to to
 
 `Note: Sometimes the llm generated code has little mistakes. so, i decided to give llm 3 chances to correct that.`
 
-### Trying to get a good score
+### Approch-4: Trying to get a good score
 - Currently gemini gives bad result for some requests. 
     - possible approch: send multiple llm calls and choose the best result.
 
@@ -39,13 +39,15 @@ Problem: the llm writes code assuming the names on itself which gave raise to to
 - Try to mimic your way of getting solution from llm.
     - my way:
         - ask for code --> error occurs in code.
-        - sends the error code. Not the whole question and error code again.
+        - sends the error code. Not the whole question.
 - `Solution: implement chats `
     - send only the part where llm made mistake and get answers.
     - `Plus point: `
     - If we got a working code. But the outputs are wrong, meaning llm gave wrong logic.
         - How to check llm gave wrong logic code. `empty files`
     - ask again
-    - uses less Tokens. Don't have to send again the question statement again.
+    - `Bonus`: uses less Tokens. Don't have to send again the question statement again.
+
+### Matain a single chat session and ask them for code step by step, if some steps has faulty code ask again.
 
  

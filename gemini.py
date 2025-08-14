@@ -10,10 +10,37 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-MODEL_NAME = "gemini-2.5-flash"
-async def parse_question_with_llm(question_text, uploaded_files=None,folder="uploads"):
-    uploaded_files = uploaded_files or []
+MODEL_NAME = "gemini-2.5-pro"
 
+# Give response in JSON format
+generation_config = genai.types.GenerationConfig(
+    response_mime_type="application/json"
+)
+
+# Store chat sessions for both parsing and answering
+parse_chat_sessions = {}
+answer_chat_sessions = {}
+
+# Get or create a persistent chat session for a given session_id.
+async def get_chat_session(sessions_dict, session_id, system_prompt, model_name=MODEL_NAME):
+    if session_id not in sessions_dict:
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            generation_config=generation_config,   # defaults for the whole chat
+            system_instruction=system_prompt       # put your system prompt here
+        )        
+        chat = model.start_chat(history=[])
+        sessions_dict[session_id] = chat    
+    return sessions_dict[session_id]
+
+# ------------------------
+# PARSE QUESTION FUNCTION
+# ------------------------
+async def parse_question_with_llm(question_text=None, uploaded_files=None, session_id="default_parse", retry_message=None, folder="uploads"):
+    """
+    Parse question with persistent chat session.
+    - If retry_message is provided, sends only that to continue conversation.
+    """
     SYSTEM_PROMPT = f"""
 You are a precise data extraction and analysis assistant.  
 You must only:
@@ -54,8 +81,13 @@ STRICT PROHIBITIONS:
 """
 
 
+    chat =await get_chat_session(parse_chat_sessions, session_id, SYSTEM_PROMPT)
 
-    user_prompt = f"""
+    if retry_message:
+        # Only send error/retry message
+        prompt = f"Previous code failed with: <error_snippet>{retry_message}</error_snippet>. Please fix the code."
+    else:
+        prompt = f"""
 Question:
 <questions_file_output>
 "{question_text}"
@@ -71,14 +103,6 @@ Generate Python code that collects the data needed for the question, saves it to
 and generates {folder}/metadata.txt with the required metadata.  
 Do not answer the question — only collect the data and metadata.  
 """
-    model = genai.GenerativeModel(MODEL_NAME)
-
-    response = model.generate_content(
-        [SYSTEM_PROMPT, user_prompt],
-        generation_config=genai.types.GenerationConfig(
-            response_mime_type="application/json"
-        )
-    )
 
     # Path to the file
     file_path = os.path.join(folder, "metadata.txt")
@@ -87,17 +111,23 @@ Do not answer the question — only collect the data and metadata.
         with open(file_path, "w") as f:
             f.write("")
     
+    response = chat.send_message(prompt)
     return json.loads(response.text)
 
-
-
-
-async def answer_with_data(question_text, folder="uploads"):
+# ------------------------
+# ANSWER WITH DATA FUNCTION
+# ------------------------
+async def answer_with_data(question_text=None, session_id="default_answer", retry_message=None, folder="uploads"):
+    """
+    Answer analytical question with persistent chat session.
+    - If retry_message is provided, sends only that to continue conversation.
+    """
+    # Reading metadata file
     metadata_path = os.path.join(folder, "metadata.txt")
     with open(metadata_path, "r") as file:
         metadata = file.read()
 
-    SYSTEM_PROMPT2 = f"""
+    SYSTEM_PROMPT = f"""
 You are a precise Python code generation assistant.  
 You must only:
 1. Generate Python 3 code that, based on the provided question and metadata, retrieves or processes the data necessary to answer the question.  
@@ -132,7 +162,12 @@ Output schema:
 }}
 """
 
-    user_prompt = f"""
+    chat =await get_chat_session(answer_chat_sessions, session_id, SYSTEM_PROMPT)
+
+    if retry_message:
+        prompt = f"Previous code failed: <error_snippet>{retry_message}</error_snippet>. Please correct it."
+    else:
+        prompt = f"""
 Question:
 <questions>
 {question_text}
@@ -163,16 +198,5 @@ Follow the schema exactly and return only valid JSON.
         with open(file_path, "w") as f:
             f.write("")
 
-    model = genai.GenerativeModel(MODEL_NAME)
-
-    # SYSTEM_PROMPT2 needs to be formatted with the folder
-    system_prompt2 = SYSTEM_PROMPT2
-
-    response = model.generate_content(
-        [system_prompt2, user_prompt],
-        generation_config=genai.types.GenerationConfig(
-            response_mime_type="application/json"
-        )
-    )
-
+    response = chat.send_message(prompt)
     return json.loads(response.text)
