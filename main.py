@@ -10,6 +10,8 @@ from fastapi.responses import HTMLResponse
 import difflib
 import aiofiles
 import time
+import itertools
+import re
 
 from task_engine import run_python_code
 from gemini import parse_question_with_llm
@@ -45,6 +47,37 @@ def is_csv_empty(csv_path):
     return not os.path.exists(csv_path) or os.path.getsize(csv_path) == 0
 
 
+# Funtion trip result
+def is_base64_image(s: str) -> bool:
+    if s.startswith("data:image"):
+        return True
+    # heuristic: long base64-looking string
+    if len(s) > 100 and re.fullmatch(r'[A-Za-z0-9+/=]+', s):
+        return True
+    return False
+
+
+def strip_base64_from_json(data: dict) -> dict:
+    def _process_value(value):
+        if isinstance(value, str) and is_base64_image(value):
+            return "[IMAGE_BASE64_STRIPPED]"
+        elif isinstance(value, list):
+            return [_process_value(v) for v in value]
+        elif isinstance(value, dict):
+            return {k: _process_value(v) for k, v in value.items()}
+        return value
+
+    return _process_value(data)
+
+
+# Pre-created venv paths (point to the python executable inside each venv)
+VENV_PATHS = [
+    "venv/bin/python3",
+    "venv1/bin/python3",
+    "venv2/bin/python3"
+]
+
+venv_cycle = itertools.cycle(VENV_PATHS)
 
 @app.post("/api")
 async def analyze(request: Request):
@@ -55,7 +88,9 @@ async def analyze(request: Request):
 
     # Setting up file for llm response
     llm_response_file_path = os.path.join(request_folder, "llm_response.txt")
+
     
+
     # Setup logging for this request
     log_path = os.path.join(request_folder, "app.log")
     logger = logging.getLogger(request_id)
@@ -94,8 +129,6 @@ async def analyze(request: Request):
             saved_files[field_name] = value
 
     # Fallback: If no questions.txt, use the first file as question
-    
-
     if question_text is None and saved_files:
         target_name = "question.txt"
         file_names = list(saved_files.keys())
@@ -112,34 +145,51 @@ async def analyze(request: Request):
         async with aiofiles.open(selected_file_path, "r") as f:
             question_text = await f.read()
 
-    user_prompt = f"""<user_prompt>
-    I know nothing about data analytics, to solving this question, what we will do is this:
-    Step-1: I will give you a question statement which has data sources and questions. You will break that into tasks. First task is getting required info.You will give me code that extracts the basic info about the data scource.like
-        - If it is a url: give code for scraping the basic info like tables names and other important info.The scraped data should be not long it take max 100 tokens.
-        - If it is a csv: give code to get its first 3 rows.
-    step-2: you download the required data and save it in this ({request_folder}) folder location.
-    step-3: I will give you the info that i obtain. and then you give me the code for solving those questions and saving answer in a {request_folder}/result.txt file.
-    step-4: I will pass you the content of {request_folder}/result.txt, and you tell me if it is wrong or not. If found wrong we will start again.
+    python_exec = next(venv_cycle)  # pick next venv
+    logger.info("Using Python executable: %s", python_exec)
 
-    lastly, if any error occurs at a given step. I will give you the error message and you correct that if it still not works then you give me fresh new code.
-    
-    you answer me strictly in JSON format. Like this
-    {{
-       "code": "<python_code_here_to_run_in_REPL>",
-       "libraries": ["list", "of", "external_libraries"],
-       "run_this": 0 or 1: give me 1 if you want me to execute the code and tell you the output. Give me 0, when all the steps are done and I had provided you the result and you had verified it to be correct.If not correct give me a final code that makes that correct.
-   }}
+    user_prompt = f"""
+I know nothing about data analytics. To solve my question, follow this exact process:
 
-   and save the code results in {request_folder}/metadata.txt. So i will read that and send you the info that you had collected.
+### Step 1:
+I will give you a question statement with possible data sources (URL, CSV, database, etc.).  
+Your first task: generate code that extracts **basic info** about the data source:
+- URL → Scrape and summarize tables, headings, and important structures. Keep summary under 100 tokens.
+- CSV/Excel → Return first 3 rows.
+- Database → Show table names or schema preview.
+- PDF/Text/Image → Extract a small preview (not full content).
 
-- External libraries must be listed; built-ins should not be listed.
-- Use the provided Gemini API key when additional reasoning or code generation is needed mid-process.
+### Step 2:
+Download or extract the required data and save it in {request_folder}.
 
-for image processing use python and don't use gemini vision model it is not working.If you other error then first solve that, then move next
-all files that you need are in {request_folder}. so please add this before accesing any file like {request_folder}/filename.
-also only append required data in {request_folder}/metadata.txt. as i pass that to you it will consume tokens.
-use the pip install names for libraries as they are going to installed using pip.(don;t include libraries that are buildin)
-</userprompt>"""
+### Step 3:
+I will pass you the collected info from {request_folder}/metadata.txt.  
+Then, generate code to solve the question fully and save the **final answer** in {request_folder}/result.txt (or result.json if the format is structured).
+
+### Step 4:
+I will give you the content of {request_folder}/result.txt.  
+- If correct → mark `run_this=0`.  
+- If wrong → provide corrected code to recompute the answer.  
+
+### Error Handling:
+If I give you an error message:
+- Fix the exact issue and return corrected code.
+- If the error repeats, generate entirely new code.
+
+### Output Format:
+You must always answer in **valid JSON** like this:
+{{
+    "code": "<python_code_here>",
+    "libraries": ["list", "of", "external_libraries"],
+    "run_this": 1 or 0
+}}
+
+### Additional Rules:
+- Save extracted info into {request_folder}/metadata.txt (append mode).  
+- Save final answers in {request_folder}/result.txt (or {request_folder}/result.json if structured).  
+- Always prepend file access with {request_folder}/filename.  
+- Use only necessary pip-installable external libraries.  
+"""
 
 
     question_text = str("<question>") +  question_text+ "</question>"  + str(user_prompt)
@@ -157,16 +207,6 @@ use the pip install names for libraries as they are going to installed using pip
 
     runner = 1
 
-
-    # Step 1: Get code from LLM
-    response = await parse_question_with_llm(
-        question_text=question_text,
-        uploaded_files=saved_files,
-        folder=request_folder,
-        session_id=session_id,
-        retry_message=retry_message
-    )
-
     # Loops to ensure we get a valid json reponse
     max_attempts = 3
     attempt = 0
@@ -174,7 +214,7 @@ use the pip install names for libraries as they are going to installed using pip
     error_occured = 0
     
     while attempt < max_attempts:
-        logger.info("Step-3: Getting scrap code and metadata from llm. Tries count = %d", attempt)
+        logger.info("🤖 Step-1: Getting scrap code and metadata from llm. Tries count = %d", attempt)
         try:
             if error_occured == 0:
                 response = await parse_question_with_llm(
@@ -185,58 +225,169 @@ use the pip install names for libraries as they are going to installed using pip
                             retry_message=retry_message
                         )
             else:
+                logger.info("🤖 Step-1: Retrying with error message: %s", retry_message)
                 response = await parse_question_with_llm(retry_message=retry_message, folder=request_folder, session_id=request_id)
             # Check if response is a valid dict (parsed JSON)
             if isinstance(response, dict):
+                logger.info("🤖 Step-1: Successfully parsed response from LLM.")
                 break
         except Exception as e:
             error_occured = 1
-            retry_message = last_n_words(str(e), 100) + str("Provide a valid JSON response")
-            logger.error("Step-3: Error in parsing the result. %s", retry_message)
+            retry_message = (
+    "⚠️ The previous response was not valid JSON.\n"
+    "Your task: Fix the issue and return a STRICTLY valid JSON object.\n"
+    "Do not include explanations, text, or comments — only JSON.\n\n"
+    "Error details (last 100 words):\n<error>"
+    + last_n_words(str(e), 100) +
+    "</error>\n\n"
+    "Expected JSON format:\n"
+    "{\n"
+    '   "code": "<python_code_here_to_run_in_REPL>",\n'
+    '   "libraries": ["list", "of", "external_libraries"],\n'
+    '   "run_this": 0 or 1\n'
+    "}"
+)
+
+            logger.error("❌🤖 Step-1: Error in parsing the result. %s", retry_message)
         attempt += 1
 
 
     if not isinstance(response, dict):
-        logger.error("Error: Could not get valid response from LLM after retries.")
+        logger.error("❌🤖 Step-1: Could not get valid response from LLM after retries.")
         return JSONResponse({"message": "Error_first_llm_call: Could not get valid response from LLM after retries."})
 
+    # Extract code, libraries, and run_this from the response
     code_to_run = response.get("code", "")
     required_libraries = response.get("libraries", [])
     runner = response.get("run_this", 1)
 
+    logger.info("💻 Step-3: Entering loop")
+    loop_counter = 0
     while runner == 1:
+        loop_counter += 1
         # Check timeout
         if time.time() - start_time > 500:
             print("⏳ Timeout: 150 seconds exceeded.")
             break
 
-               
-
+        logger.info(f"💻 Loop-{loop_counter}: Running LLM code.")
         # Step 2: Run the generated code
         execution_result =await run_python_code(
             code=code_to_run,
             libraries=required_libraries,
-            folder=request_folder
+            folder=request_folder,
+            python_exec=python_exec
         )
 
         # Step 3: Check if execution failed
         if execution_result["code"] == 0:
-            print("❌ Code execution failed. Retrying...")
+            logger.error(f"❌💻 Loop-{loop_counter}: Code execution failed: %s", last_n_words(execution_result["output"]))
             retry_message =str("<error_snippet>") + last_n_words(execution_result["output"]) + str("</error_snippet>") +str("Solve this error or give me new freash code")
         else:
+            logger.info(f"✅💻 Loop-{loop_counter}: Code executed successfully.")
             # Read metadata
             metadata_file = os.path.join(request_folder, "metadata.txt")
             if not os.path.exists(metadata_file):
-                print("❌ metadata.txt not found.")
+                print("❌📁 metadata.txt not found.")
                 continue
             
             with open(metadata_file, "r") as f:
                 metadata = f.read()
-
-
             retry_message =str("<metadata>") + metadata + str("</metadata>")
+        
+        # Checking if result.txt exists
+        result_file = os.path.join(request_folder, "result.txt")
+        result_path = os.path.join(request_folder, "result.json")
 
-        print(retry_message)
+        if os.path.exists(result_path) or os.path.exists(result_file):
+            logger.info(f"✅📁 Loop-{loop_counter}: Found result files.")
+            if os.path.exists(result_path):
+                # Code for reading result.json
+                with open(result_path, "r") as f:
+                    result = f.read()
+            elif os.path.exists(result_file):
+                # Code for reading result.txt
+                with open(result_file, "r") as f:
+                    result = f.read()
+
+            result = strip_base64_from_json(result)
+
+            print("✅ Checking results")
+            # Step 4: Verify the answer with the LLM
+            verification_prompt = f"""
+    Check if this answer looks correct:  
+    <result> {result} </result>  
+
+    - If you think the result is correct and in correct format→ return JSON with `"run_this": 0`.  
+    - If wrong or incomplete → generate **new corrected code** that produces the right result.  
+    - Remember this: base64 images are replaced to this text '[IMAGE_BASE64_STRIPPED]' to save token, for images only confirm if this tag is present or not
+    - If the question specifies a JSON answer format → save the answer in {request_folder}/result.json.  
+       - If some values are missing, fill with placeholder/random values but keep the correct JSON structure.  
+    - Only set `"run_this": 1` if the computation must be redone with fresh code.  
+    - If it takes more than 3 retries then, just send blank json format with code, libraries and run_this = 0. 
+
+    Always return JSON only.
+    """
+
+            # Loops to ensure we get a valid json reponse
+            max_attempts = 3
+            attempt = 0
+            response = None
+            error_occured = 0
+
+            while attempt < max_attempts:
+                logger.info(f"🤖 Loop-{loop_counter}: Checking result validity.")
+                try:
+                    if error_occured == 0:
+                        verification = await parse_question_with_llm(
+                            retry_message=verification_prompt,
+                            uploaded_files=saved_files,
+                            folder=request_folder,
+                            session_id=session_id,
+                            )
+                    else:
+                        logger.error(f"❌🤖 Loop-{loop_counter}: Invalid json response. %s", retry_message)
+                        verification = await parse_question_with_llm(retry_message=retry_message, folder=request_folder, session_id=request_id)
+                    # Check if response is a valid dict (parsed JSON)
+                    if isinstance(verification, dict):
+                        break
+                except Exception as e:
+                    error_occured = 1
+                    retry_message = (
+        "⚠️ The previous response was not valid JSON.\n"
+        "Your task: Fix the issue and return a STRICTLY valid JSON object.\n"
+        "Do not include explanations, text, or comments — only JSON.\n\n"
+        "Error details (last 100 words):\n<error>"
+        + last_n_words(str(e), 100) +
+        "</error>\n\n"
+        "Expected JSON format:\n"
+        "{\n"
+        '   "code": "<python_code_here_to_run_in_REPL>",\n'
+        '   "libraries": ["list", "of", "external_libraries"],\n'
+        '   "run_this": 0 or 1\n'
+        "}"
+    )
+
+                    logger.error(f"❌🤖 Loop-{loop_counter}: Error in parsing the result. %s", retry_message)
+                attempt += 1
+
+
+            if not isinstance(verification, dict):
+                logger.error(f"❌🤖 Loop-{loop_counter}: Error: Could not get valid response for validation response.")
+                print(verification)
+                runner = 0
+                break
+
+            if isinstance(verification, dict):
+                code_to_run = verification.get("code", "")
+                required_libraries = verification.get("libraries", [])
+                runner = verification.get("run_this", 0)  # Assume False if not provided
+                if runner == 1:
+                    logger.info(f"💻 Loop-{loop_counter}: Re-running code as per validation result.")
+                    continue
+                else:
+                    logger.info(f"✅ Loop-{loop_counter}: Validation successful, no re-run needed.")
+                    break
         
 
         # Loops to ensure we get a valid json reponse
@@ -246,7 +397,7 @@ use the pip install names for libraries as they are going to installed using pip
         error_occured = 0
 
         while attempt < max_attempts:
-            logger.info("Step-3: Getting scrap code and metadata from llm. Tries count = %d", attempt)
+            logger.info(f"🤖 Loop-{loop_counter}: Inside Loop LLM call.")
             try:
                 if error_occured == 0:
                     response = await parse_question_with_llm(
@@ -255,96 +406,55 @@ use the pip install names for libraries as they are going to installed using pip
                     session_id=session_id
                     )
                 else:
+                    logger.error(f"❌🤖 Loop-{loop_counter}: Invalid json response. %s", retry_message)
                     response = await parse_question_with_llm(retry_message=retry_message, folder=request_folder, session_id=request_id)
                 # Check if response is a valid dict (parsed JSON)
                 if isinstance(response, dict):
                     break
             except Exception as e:
                 error_occured = 1
-                retry_message = last_n_words(str(e), 100) + str("Provide a valid JSON response")
-                logger.error("Step-3: Error in parsing the result. %s", retry_message)
+                retry_message = (
+    "⚠️ The previous response was not valid JSON.\n"
+    "Your task: Fix the issue and return a STRICTLY valid JSON object.\n"
+    "Do not include explanations, text, or comments — only JSON.\n\n"
+    "Error details (last 100 words):\n<error>"
+    + last_n_words(str(e), 100) +
+    "</error>\n\n"
+    "Expected JSON format:\n"
+    "{\n"
+    '   "code": "<python_code_here_to_run_in_REPL>",\n'
+    '   "libraries": ["list", "of", "external_libraries"],\n'
+    '   "run_this": 0 or 1\n'
+    "}"
+)
+
+                logger.error(f"❌🤖 Loop-{loop_counter}: Error in parsing the result. %s", retry_message)
             attempt += 1
 
 
         if not isinstance(response, dict):
-            logger.error("Error: Could not get valid response from LLM after retries.")
+            logger.error(f"❌🤖 Loop-{loop_counter}: Could not get valid response from LLM after retries.")
             return JSONResponse({"message": "Error_Inside_loop_call: Could not get valid response from LLM after retries."})
 
         code_to_run = response.get("code", "")
         required_libraries = response.get("libraries", [])
         runner = response.get("run_this", 1)
 
-        # Checking if result.txt exists
-        result_file = os.path.join(request_folder, "result.txt")
-        if not os.path.exists(result_file):
-            print("❌ result.txt not found.")
-            continue
-
-        # Code for reading result.txt
-        with open(result_file, "r") as f:
-            result = f.read()
-
-        print("✅ Checking results")
-        # Step 4: Verify the answer with the LLM
-        verification =await parse_question_with_llm(
-            question_text=f"Is this answer correct? Just see the result and see if they are looking correct. If you think they might not be the answer, please provide the new correct code. And if yes, then set 'run_this' to 0. <result> {result} </result> and don;t take too much time for this. And if in the question you found any Answer format, write the answers in {request_folder}/result.json, if some values are missing match the json structure and input random value in it.Also keep the 'run_this' set to 0 for this task.Only set 'run_this' to 1, if you this we had to calculate all this things again and you had provided the code for that.",
-            uploaded_files=saved_files,
-            folder=request_folder,
-            session_id=session_id,
-            retry_message=None
-        )
-
-        # Loops to ensure we get a valid json reponse
-        max_attempts = 3
-        attempt = 0
-        response = None
-        error_occured = 0
-
-        while attempt < max_attempts:
-            logger.info("Step-3: Getting scrap code and metadata from llm. Tries count = %d", attempt)
-            try:
-                if error_occured == 0:
-                    verification =await parse_question_with_llm(
-                    retry_message=f"Is this answer correct? Just see the result and see if they are looking correct. If you think they might not be the answer, please provide the new correct code. And if yes, then set 'run_this' to 0. <result> {result} </result> and don;t take too much time for this. And if in the question you found any Answer format, write the answers in {request_folder}/result.json, if some values are missing match the json structure and input random value in it.Also keep the 'run_this' set to 0 for this task.Only set 'run_this' to 1, if you this we had to calculate all this things again and you had provided the code for that.",
-                    uploaded_files=saved_files,
-                    folder=request_folder,
-                    session_id=session_id,
-                    )
-                else:
-                    verification = await parse_question_with_llm(retry_message=retry_message, folder=request_folder, session_id=request_id)
-                # Check if response is a valid dict (parsed JSON)
-                if isinstance(response, dict):
-                    break
-            except Exception as e:
-                error_occured = 1
-                retry_message =str("Your previous code has errors: <error>") +   last_n_words(str(e) + str("</error>"), 100) + str("Provide a valid JSON response")
-                logger.error("Step-3: Error in parsing the result. %s", retry_message)
-            attempt += 1
-
-
-        if not isinstance(response, dict):
-            logger.error("Error: Could not get valid response from LLM after retries.")
-            return JSONResponse({"message": "Error_verification_call: Could not get valid response from LLM after retries."})
         
 
-        code_to_run = verification.get("code", "")
-        required_libraries = verification.get("libraries", [])
-        runner = verification.get("run_this", 0)  # Assume True if not provided
-
-
     try:
+        logger.info(f"💻 Step-6: Running final code.")
         #Running final code
         execution_result =await run_python_code(
             code=code_to_run,
             libraries=required_libraries,
-            folder=request_folder
+            folder=request_folder,
+            python_exec=python_exec
         )
         if execution_result["code"] == 0:
-            logger.error("Step-6: Final code execution failed: %s", last_n_words(execution_result["output"]))
-            print("❌ Final code execution failed. Please check the logs.")
+            logger.error(f"❌💻 Step-6: Final code execution failed: %s", last_n_words(execution_result["output"]))
     except Exception as e:
-        logger.error("Step-6: Error occurred while running final code: %s", last_n_words(e))
-        print("❌ Error occurred while running final code. Please check the logs.")
+        logger.error(f"❌💻 Step-6: Error occurred while running final code: %s", last_n_words(e))
 
     # Final step: send the response back by reading the result.txt in JSON format
 
@@ -353,10 +463,11 @@ use the pip install names for libraries as they are going to installed using pip
     result_path = os.path.join(request_folder, "result.json")
 
     if not os.path.exists(result_path):
+        logger.error("❌📁 Step-7: result.json not found. Checking for result.txt.")
         # Checking if result.txt exists
         result_file = os.path.join(request_folder, "result.txt")
         if not os.path.exists(result_file):
-            print("❌ result.txt not found.")
+            logger.error("❌📁 result.txt not found.")
 
         # Code for reading result.txt
         with open(result_file, "r") as f:
@@ -367,16 +478,17 @@ use the pip install names for libraries as they are going to installed using pip
             with open(result_path, "w") as f:
                 f.write(result)
         except Exception as e:
-            logger.error("Step-7: Error occurred while writing result.json: %s", last_n_words(e))
+            logger.error(f"❌📁 Step-7: Error occurred while writing result.json: %s", last_n_words(e))
 
     else:
         with open(result_path, "r") as f:
             try:
+                logger.info("📁 Step-7: Reading result.json")
                 data = json.load(f)
-                logger.info("Step-7: send result back")
+                logger.info("✅📁 Step-7: send result back")
                 return JSONResponse(content=data)
             except Exception as e:
-                logger.error("Step-7: Error occur while sending result: %s", last_n_words(e))
+                logger.error(f"❌📁 Step-7: Error occur while sending result: %s", last_n_words(e))
                 # Return raw content if JSON parsing fails
                 f.seek(0)
                 raw_content = f.read()
