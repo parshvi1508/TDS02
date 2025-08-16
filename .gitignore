@@ -7,3 +7,4 @@ test.py
 main1.py
 llm_parser.py
 __pycache__/*.pyc
+deepseek.py
