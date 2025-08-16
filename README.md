@@ -144,3 +144,10 @@ Sometimes, pressing **Ctrl+C** does not fully stop the Uvicorn server. This can 
 Always make sure no old Uvicorn processes are running before starting the
 
 ![Uvicorn server stopping](photos/uvicorn_server_stoping.png)
+
+
+# New changes
+
+## Added api_key_rotator.py file to rotate APIs
+- add you APIs there
+`Note: now it no longer asks for API keys in terminal. Add them manually in the api rotator file.`
