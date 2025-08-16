@@ -10,7 +10,7 @@ if not api_key:
 
 genai.configure(api_key=api_key)
 
-MODEL_NAME = "gemini-2.5-pro"
+MODEL_NAME = "gemini-2.5-flash"
 
 # Give response in JSON format
 generation_config = genai.types.GenerationConfig(
@@ -41,43 +41,83 @@ async def parse_question_with_llm(question_text=None, uploaded_files=None, sessi
     Parse question with persistent chat session.
     - If retry_message is provided, sends only that to continue conversation.
     """
+#    SYSTEM_PROMPT = f"""
+#You are a precise data extraction and analysis assistant.  
+#You must only:
+#1. Generate Python 3 code that loads, scrapes, or reads the raw data needed to answer the user's question.  
+#2. List all external Python libraries that need to be installed (do not list built-in libraries).  
+#3. Extract the main questions the user is asking (without answering them).  
+#
+#Rules:
+#- If no URLs are provided, read files from the "uploads" folder and create metadata.  
+#- Always save the datasets in  {folder}.  
+#- Record the paths and short descriptions of stored data files in {folder}/metadata.txt.  
+#- Include in {folder}/metadata.txt:
+#    • Output of df.info()  
+#    • Column names  
+#    • First few rows (df.head())  
+#    • also add path to data files that 
+#    • An ANSWER_FORMAT block:
+#      - If the provided files (e.g., questions.txt) contain an explicit answer format (JSON object/array/schema/template), copy it VERBATIM under a header line "ANSWER_FORMAT:".
+#      - If none is present, write "ANSWER_FORMAT: JSON".
+#- Create the folder {folder} if it does not exist.  
+#- The code must be self-contained and runnable without manual edits.  
+#- If source is a webpage → download and parse.  
+#- If source is CSV/Excel → read directly.  
+#
+#Output format:
+#Respond **only** in valid JSON with this schema:
+#{{
+#  "code": "string — Python scraping/reading code as plain text",
+#  "libraries": ["string — names of external required libraries"],
+#  "questions": ["string — extracted questions"]
+#}}
+#
+#STRICT PROHIBITIONS:
+#- Do not include explanations, comments, or extra text outside JSON.  
+#- Do not perform analysis or answer the questions.  
+#- Do not print or visualize anything unless it is required for metadata.  
+#- Do not change the JSON schema.  
+#"""
+#
+
     SYSTEM_PROMPT = f"""
-You are a precise data extraction and analysis assistant.  
-You must only:
-1. Generate Python 3 code that loads, scrapes, or reads the raw data needed to answer the user's question.  
-2. List all external Python libraries that need to be installed (do not list built-in libraries).  
-3. Extract the main questions the user is asking (without answering them).  
 
-Rules:
-- If no URLs are provided, read files from the "uploads" folder and create metadata.  
-- Always save the datasets in  {folder}.  
-- Record the paths and short descriptions of stored data files in {folder}/metadata.txt.  
-- Include in {folder}/metadata.txt:
-    • Output of df.info()  
-    • Column names  
-    • First few rows (df.head())  
-    • also add path to data files that 
-    • An ANSWER_FORMAT block:
-      - If the provided files (e.g., questions.txt) contain an explicit answer format (JSON object/array/schema/template), copy it VERBATIM under a header line "ANSWER_FORMAT:".
-      - If none is present, write "ANSWER_FORMAT: JSON".
-- Create the folder {folder} if it does not exist.  
-- The code must be self-contained and runnable without manual edits.  
-- If source is a webpage → download and parse.  
-- If source is CSV/Excel → read directly.  
+    
+    
+You are an AI Python code generator specialized in multi-step analytical and data-processing tasks.
 
-Output format:
-Respond **only** in valid JSON with this schema:
-{{
-  "code": "string — Python scraping/reading code as plain text",
-  "libraries": ["string — names of external required libraries"],
-  "questions": ["string — extracted questions"]
-}}
+Core behavior:
+1. Always break problems into multiple sequential steps.
+2. After each step:
+   - Save any discovered insights, extracted data, or intermediate results to {folder}/metadata.txt (append mode).
+3. Only store the final answer in {folder}/result.txt.
 
-STRICT PROHIBITIONS:
-- Do not include explanations, comments, or extra text outside JSON.  
-- Do not perform analysis or answer the questions.  
-- Do not print or visualize anything unless it is required for metadata.  
-- Do not change the JSON schema.  
+Resources:
+- Primary LLM: Google Gemini
+- API Key: {"AIzaSyBxddEHeeSs8ovD4thaYLkA5tk1fo1zxFE"}
+- Working folder: {folder}
+
+Data handling capabilities:
+- Fetch & parse data from URLs (HTML, JSON, CSV, APIs).
+- Read local files (CSV, Excel, PDF, images, text, JSON).
+- Scrape websites and store structured results.
+- Connect to and query databases.
+- Programmatically call the LLM API with authentication and JSON parsing.
+- Save all outputs to {folder}.
+
+Execution rules:
+1. Always return **valid JSON**:
+   {{
+       "code": "<python_code_that_can_run_in_python_REPL>",
+       "libraries": ["list", "of", "external_libraries"],
+       "run_this": 0 or 1: give me 1 if you want me to execute the code and tell you the output. Give me 0, when all the steps are done and I had provided you the result and you had verified it to be correct.If not correct give me a final code that makes that correct.
+   }}
+3. Never print explanations; JSON only.
+4. If retry_message is provided, fix only the described issue. And if it keeps appearing, then change the whole code.
+8. The final step should save the answer to {folder}/result.txt.
+
+Note: You must always work in incremental steps, using the provided API key for Gemini calls when needed.
 """
 
 
@@ -85,25 +125,29 @@ STRICT PROHIBITIONS:
 
     if retry_message:
         # Only send error/retry message
-        prompt = f"Previous code failed with: <error_snippet>{retry_message}</error_snippet>. Please fix the code."
+        #prompt = f"Previous code failed with: <error_snippet>{retry_message}</error_snippet>. Please fix the code."
+        prompt = retry_message
     else:
-        prompt = f"""
-Question:
-<questions_file_output>
-"{question_text}"
-</questions_file_output>
+        prompt = question_text
 
-Uploaded files:
-<uploaded_files>
-"{uploaded_files}"
-</uploaded_files>
-
-Your task:
-Generate Python code that collects the data needed for the question, saves it to {folder}/data.csv,  
-and generates {folder}/metadata.txt with the required metadata.  
-Do not answer the question — only collect the data and metadata.  
-"""
-
+#    else:
+#        prompt = f"""
+#Question:
+#<questions_file_output>
+#"{question_text}"
+#</questions_file_output>
+#
+#Uploaded files:
+#<uploaded_files>
+#"{uploaded_files}"
+#</uploaded_files>
+#
+#Your task:
+#Generate Python code that collects the data needed for the question, saves it to {folder}/data.csv,  
+#and generates {folder}/metadata.txt with the required metadata.  
+#Do not answer the question — only collect the data and metadata.  
+#"""
+    
     # Path to the file
     file_path = os.path.join(folder, "metadata.txt")
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -112,7 +156,10 @@ Do not answer the question — only collect the data and metadata.
             f.write("")
     
     response = chat.send_message(prompt)
-    return json.loads(response.text)
+    try:
+        return json.loads(response.text)
+    except:
+        print(response)
 
 # ------------------------
 # ANSWER WITH DATA FUNCTION

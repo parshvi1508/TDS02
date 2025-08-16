@@ -1,18 +1,49 @@
-DATA_SOURCES:
-- CSV: sales.csv (Monthly sales by region)
-- URL: Wikipedia GDP page: "https://en.wikipedia.org/wiki/List_of_countries_by_GDP_(nominal)"
+Scrape the list of highest grossing films from Wikipedia. It is at the URL:
+https://en.wikipedia.org/wiki/List_of_highest-grossing_films
+
+Answer the following questions and respond with a JSON array of strings containing the answer.
+
+1. How many $2 bn movies were released before 2000?
+2. Which is the earliest film that grossed over $1.5 bn?
+3. What's the correlation between the Rank and Peak?
+4. Draw a scatterplot of Rank and Peak along with a dotted red regression line through it.
+   Return as a base-64 encoded data URI, `"data:image/png;base64,iVBORw0KG..."` under 100,000 bytes.
 
 
-
-ANSWER_FORMAT:
-{
-  "answer": "...",
-  "charts": [
-    {"title": "...", "base64_image": "..."}
-  ]
-}
 
 QUESTIONS:
-1. From sales.csv, calculate total sales for each region.
-2. From sales.csv, generate a monthly sales line chart (base64).
-3. From the Wikipedia URL, list the top 5 countries by nominal GDP.
+1. From product_image.png, extract product name.
+2. Look up this product in product_catalog.db and return full details.
+3. From the Wikipedia URL, return the top 3 best-selling books.
+
+USER_PROMPT = f"""
+You are generating Python code that solves the given problem in multiple incremental steps.
+
+Rules:
+- You can read {folder}/metadata.txt if it exists.And pass its info to you llm call.
+- Store any new insights into {folder}/metadata.txt (append).
+- After each partial step, raise StepIncompleteError to continue the loop.
+- Only store the final answer in {folder}/result.txt.
+
+- External libraries must be listed; built-ins should not be listed.
+- If an error occurs, raise StepIncompleteError so the controlling loop can retry or continue.
+- Use the provided Gemini API key when additional reasoning or code generation is needed mid-process.
+
+Your process:
+1. Read any available metadata from metadata.txt.
+2. Execute one logical step toward the solution.
+3. Save findings to metadata.txt.
+4. Raise StepIncompleteError until the final step is reached.
+5. On the last step, store the result in result.txt and set is_correct = true.
+
+This task will be run without human interaction; your code must handle data retrieval, LLM calls, and file operations automatically.
+"""
+
+
+for image processing use python and don't use gemini vision model it is not working
+- Always return valid JSON:
+  {{
+      "code": "<python_code_here>",
+      "libraries": ["list", "of", "external_libraries"],
+      "is_correct": true_or_false
+  }}
