@@ -1,12 +1,22 @@
 import itertools
 import time
 
-API_KEYS = [
-    {"key": "AIzaSyCxO2SP6B9wOQ6dAtte8JWSU3l1w", "req_timestamps": []},
-    {"key": "AIzaSyBxddEHeeSs8ovD4ttk1fo1zxFE", "req_timestamps": []},
-    {"key": "AIzaSyDR6arJs93DInU3DZA29Ltez00", "req_timestamps": []},
-]
+import os
 
+# Read environment variable
+api_key1 = os.getenv("GENAI_API_KEY_1")
+api_key2 = os.getenv("GENAI_API_KEY_2")
+api_key3 = os.getenv("GENAI_API_KEY_3")
+
+API_KEYS  = []
+
+for api_key in [api_key1, api_key2, api_key3]
+    if api_key:
+        print("API Key found:", api_key)
+        API_KEYS.append({"key": api_key, "req_timestamps": []})        
+    else:
+        print("API Key not set.")
+        
 key_cycle = itertools.cycle(API_KEYS)
 MAX_REQS_PER_MIN = 5
 
