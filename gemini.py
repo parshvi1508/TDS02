@@ -1,14 +1,8 @@
 import os
 import json
 import google.generativeai as genai
+from api_key_rotator import get_api_key
 
-# Get the API key from environment variable
-api_key = os.getenv("GENAI_API_KEY")
-
-if not api_key:
-    raise ValueError("GENAI_API_KEY environment variable is not set.")
-
-genai.configure(api_key=api_key)
 
 MODEL_NAME = "gemini-2.5-pro"
 
@@ -17,9 +11,25 @@ generation_config = genai.types.GenerationConfig(
     response_mime_type="application/json"
 )
 
+
+async def send_with_rotation(prompt, session_id, system_prompt):
+    while True:
+        try:
+            api_key = get_api_key(auto_wait=True)
+            genai.configure(api_key=api_key)
+
+            chat = await get_chat_session(parse_chat_sessions, session_id, system_prompt)
+            response = chat.send_message(prompt)
+
+            return response
+
+        except Exception as e:
+            print(f"⚠️ API key {api_key} failed: {e}. Retrying with another key...")
+            continue
+
+
 # Store chat sessions for both parsing and answering
 parse_chat_sessions = {}
-answer_chat_sessions = {}
 
 # Get or create a persistent chat session for a given session_id.
 async def get_chat_session(sessions_dict, session_id, system_prompt, model_name=MODEL_NAME):
@@ -115,7 +125,9 @@ You are an AI Python code generator for multi-step data analysis and processing.
     with open(chat_history_path, "w") as f:
         json.dump(history_data, f, indent=2)
     
-    response = chat.send_message(prompt)
+    # Sending response
+    response =await send_with_rotation(prompt, session_id, SYSTEM_PROMPT)
+
     try:
         return json.loads(response.text)
     except:
