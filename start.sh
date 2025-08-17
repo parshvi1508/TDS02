@@ -147,7 +147,7 @@ echo -e "\nServer should be ready now."
 # ================= START NGROK (FOREGROUND) =================
 echo "Starting ngrok tunnel on port 8000..."
 if command -v ngrok &> /dev/null; then
-    ngrok http 8000
+    ngrok http --url=lasting-indirectly-starfish.ngrok-free.app 80
 else
     echo "Error: ngrok not found. Please install ngrok manually:"
     echo "1. Download from https://ngrok.com/download"
