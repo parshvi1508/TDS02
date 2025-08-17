@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 # ================= INSTRUCTIONS =================
@@ -18,7 +19,6 @@ echo "    - Create a public ngrok URL for your app"
 echo "=============================================="
 echo ""
 
-
 # ================= CREATE & ACTIVATE VENV =================
 if [ ! -d "venv" ]; then
     echo "Creating virtual environment..."
@@ -26,8 +26,63 @@ if [ ! -d "venv" ]; then
 fi
 
 echo "Activating virtual environment..."
-# Activate venv depending on shell
+# Activate venv - use the correct path for Linux/WSL
 source venv/bin/activate
+
+# ================= ADD ENV VARIABLES PERMANENTLY =================
+if [ -f "env_variables.txt" ]; then
+    echo "Adding environment variables to ~/.bashrc ..."
+    while IFS='=' read -r key value; do
+        key=$(echo "$key" | tr -d '\r' | xargs)
+        value=$(echo "$value" | tr -d '\r' | xargs)
+        if [[ ! -z "$key" && ! "$key" =~ ^# ]]; then
+            # Only add if not already present
+            if ! grep -q "^export $key=" ~/.bashrc; then
+                echo "export $key=\"$value\"" >> ~/.bashrc
+            fi
+        fi
+    done < env_variables.txt
+    echo "Sourcing ~/.bashrc to apply changes..."
+    source ~/.bashrc
+fi
+
+# Flip first and second lines in env_variables.txt
+if [ -f "env_variables.txt" ]; then
+    mapfile -t lines < env_variables.txt
+    if [ "${#lines[@]}" -ge 2 ]; then
+        # Swap first and second lines
+        tmp="${lines[0]}"
+        lines[0]="${lines[1]}"
+        lines[1]="$tmp"
+        printf "%s\n" "${lines[@]}" > env_variables.txt
+    fi
+fi
+
+# Now set environment variables from the (possibly flipped) file
+if [ -f "env_variables.txt" ]; then
+    echo "Adding environment variables to ~/.bashrc ..."
+    while IFS='=' read -r key value; do
+        key=$(echo "$key" | tr -d '\r' | xargs)
+        value=$(echo "$value" | tr -d '\r' | xargs)
+        if [[ ! -z "$key" && ! "$key" =~ ^# ]]; then
+            if ! grep -q "^export $key=" ~/.bashrc; then
+                echo "export $key=\"$value\"" >> ~/.bashrc
+            fi
+        fi
+    done < <(cat env_variables.txt)
+    echo "Sourcing ~/.bashrc to apply changes..."
+    source ~/.bashrc
+fi
+
+echo "GENAI_API_KEY=$GENAI_API_KEY"
+echo "NGROK_AUTHTOKEN=$NGROK_AUTHTOKEN"
+
+# ================= GET CREDENTIALS =================
+# Google API Key
+if [ -z "$GENAI_API_KEY" ]; then
+    read -p "Enter your GENAI API key: " GENAI_API_KEY
+fi
+export GENAI_API_KEY=$GENAI_API_KEY
 
 # ngrok Auth Token
 if [ -z "$NGROK_AUTHTOKEN" ]; then
@@ -43,17 +98,23 @@ if [ ! -f ".deps_installed" ]; then
 else
     echo "Dependencies already installed. Skipping pip install."
 fi
+
 # ================= INSTALL NGROK =================
 if ! command -v ngrok &> /dev/null; then
     echo "ngrok not found, installing..."
     pip install pyngrok
-    NGROK_BIN=$(python3 -m pyngrok config get-path)
+    # Get ngrok binary path
+    NGROK_BIN=$(python3 -c "from pyngrok import conf; print(conf.get_ngrok_path())" 2>/dev/null || echo "ngrok")
 else
     NGROK_BIN=$(command -v ngrok)
 fi
 
 # ================= CONFIGURE NGROK =================
-$NGROK_BIN config add-authtoken "$NGROK_AUTHTOKEN"
+if command -v ngrok &> /dev/null; then
+    ngrok config add-authtoken "$NGROK_AUTHTOKEN"
+else
+    echo "Warning: ngrok not found, skipping configuration"
+fi
 
 # ================= DETECT APP FILE =================
 # Default to "app:main" unless a file called main.py exists
@@ -68,11 +129,12 @@ fi
 
 # ================= START UVICORN =================
 echo "Starting uvicorn server..."
+# Make sure we're using the virtual environment's uvicorn
 uvicorn $APP_TARGET --reload --host 0.0.0.0 --port 8000 &
 UVICORN_PID=$!
 
 # Trap Ctrl+C to stop uvicorn too
-trap "echo -e '\nStopping servers...'; kill $UVICORN_PID; exit" INT
+trap "echo -e '\nStopping servers...'; kill $UVICORN_PID 2>/dev/null; exit" INT
 
 # Countdown timer (3 seconds)
 echo "Waiting for uvicorn to start..."
@@ -84,4 +146,12 @@ echo -e "\nServer should be ready now."
 
 # ================= START NGROK (FOREGROUND) =================
 echo "Starting ngrok tunnel on port 8000..."
-$NGROK_BIN http 8000
+if command -v ngrok &> /dev/null; then
+    ngrok http 8000
+else
+    echo "Error: ngrok not found. Please install ngrok manually:"
+    echo "1. Download from https://ngrok.com/download"
+    echo "2. Extract and add to PATH"
+    echo "3. Run: ngrok config add-authtoken $NGROK_AUTHTOKEN"
+    echo "4. Run: ngrok http 8000"
+fi
