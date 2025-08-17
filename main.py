@@ -189,6 +189,14 @@ You must always answer in **valid JSON** like this:
 - Save final answers in {request_folder}/result.txt (or {request_folder}/result.json if structured).  
 - Always prepend file access with {request_folder}/filename.  
 - Use only necessary pip-installable external libraries.  
+
+Example Output: if asked to send a JSON like this:
+["What is the meadian of data", "What is mean", "provide base64 image"]
+
+Then, send result like this:
+
+[20, 25, "base64 image  url here"]
+I mean don't send answers like key:answer, unless it is specified.
 """
 
 
